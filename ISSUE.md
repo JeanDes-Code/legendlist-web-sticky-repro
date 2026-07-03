@@ -31,8 +31,8 @@ same conditions.
 ## Repro
 
 Minimal three-column repro (AnimatedLegendList / LegendList / ScrollView, same
-data and rows): **<link to repro repo>** — `npm install && npx expo start
---web`, fling each column. Video + frame captures in `artifacts/` (recorded at
+data and rows): **https://github.com/JeanDes-Code/legendlist-web-sticky-repro**
+— `npm install && npx expo start --web`, fling each column. Video + frame captures in `artifacts/` (recorded at
 2× CPU throttle to make both failures deterministic on camera; the
 AnimatedLegendList riding is visible at 1× on a fast fling).
 
