@@ -1,0 +1,11 @@
+{
+  "expo": {
+    "name": "legendlist-web-sticky-repro",
+    "slug": "legendlist-web-sticky-repro",
+    "version": "1.0.0",
+    "platforms": ["web", "ios", "android"],
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
