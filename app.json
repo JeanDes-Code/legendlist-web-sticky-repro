@@ -6,6 +6,9 @@
     "platforms": ["web", "ios", "android"],
     "web": {
       "bundler": "metro"
+    },
+    "experiments": {
+      "baseUrl": "/legendlist-web-sticky-repro"
     }
   }
 }
