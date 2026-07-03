@@ -1,43 +1,61 @@
 # Draft GitHub issue for legendapp/list
 
-> Title: **Web: `stickyHeaderIndices` pinning is JS-driven — pinned header drifts/snaps during fast scrolls, no push-off handoff**
+> Title: **Web: sticky headers broken — `AnimatedLegendList` headers don't pin at all; plain `LegendList` handoff drifts/stacks under fast scroll**
 
 ## Environment
 
 - `@legendapp/list` 3.3.0
-- Expo SDK 56 / react-native 0.85.3 / react-native-web 0.21.x / React 19.2.3
+- Expo SDK 56 / react-native 0.85.3 / react-native-web 0.21.x / React 19.2.3 /
+  react-native-reanimated 4.4.1
 - Chrome (macOS), also reproduced headless (Chromium via Playwright)
 
 ## Summary
 
-On web, `stickyHeaderIndices` headers are visually unstable during fast
-scrolling:
+Two related problems with `stickyHeaderIndices` on **web**:
 
-1. the pinned header **creeps away from the top and snaps back** when
-   scrolling settles;
-2. header-to-header transitions **jump instead of pushing off** (the classic
-   sticky handoff); under JS-thread load two headers can briefly **stack**;
-3. the pinned header can show a **stale section** (banner says "Section 5"
-   while the visible rows are Section 6).
+1. **`AnimatedLegendList` (`@legendapp/list/reanimated`): headers don't pin at
+   all.** They scroll away with the content like normal rows (in a real app
+   with re-renders they periodically snap back, producing an up-and-down
+   "riding" motion during scroll). Visible at 1× CPU on any fling.
+2. **Plain `LegendList`: pinning works but the handoff is unstable.** During a
+   fast fling the pinned banner can go stale (banner says "Section 5" over
+   Section 6 rows), transitions jump instead of pushing off, and two banners
+   can stack. Worsens with JS-thread load.
 
 The same content in a plain RN `ScrollView` with `stickyHeaderIndices`
-(react-native-web CSS `position: sticky`) is pixel-stable under the same
-conditions.
+(react-native-web in-flow CSS `position: sticky`) is pixel-stable under the
+same conditions.
 
 ## Repro
 
-Minimal side-by-side repro (LegendList vs ScrollView, same data/rows):
-**<link to repro repo>** — `npm install && npx expo start --web`, then fling
-both columns. Throttling the CPU in DevTools (4×–6×) exaggerates it; at 1× it
-is visible to the eye on fast flings on a full-viewport list.
+Minimal three-column repro (AnimatedLegendList / LegendList / ScrollView, same
+data and rows): **<link to repro repo>** — `npm install && npx expo start
+--web`, fling each column. Video + frame captures in `artifacts/` (recorded at
+4× CPU throttle to make the plain-list handoff deterministic on camera; the
+AnimatedLegendList failure needs no throttle).
 
-Video + frame captures are in the repro's `artifacts/` (recorded at 8× CPU
-throttle to make it deterministic in a headless recording).
+## Mechanism (from reading the shipped bundles)
 
-## Mechanism (from reading `react-native.web.mjs`)
+**Reanimated engine** (`reanimated.mjs`, `ReanimatedPositionViewSticky`): the
+pinned position is a per-frame `translateY` in a `useAnimatedStyle` driven by
+`useScrollViewOffset`:
 
-`PositionViewSticky` styles a sticky container as CSS `position: sticky` only
-while it is the **active** sticky index, and `position: absolute` otherwise:
+```js
+const delta = Math.max(0, stickyScrollOffset.value - stickyStart);
+const stickyPosition = position + delta;
+return { transform: [{ translateY: resolvedPosition }] };
+```
+
+On native the worklet runs on the UI thread → exact. On web there is no UI
+thread and browsers scroll on the **compositor** thread, so the JS-applied
+transform is permanently behind the visual scroll — the header effectively
+never pins.
+
+**RN-Animated engine** (plain list, web build `PositionViewSticky`): the active
+sticky container becomes CSS `position: sticky`, everything else stays
+`position: absolute`, and both the `activeStickyIndex` switch
+(`findCurrentStickyIndex` in `calculateItemsInView`) and the incoming header's
+`top` come from JS scroll events:
 
 ```js
 const isActive = activeStickyIndex === index;
@@ -45,34 +63,31 @@ styleBase.position = isActive ? "sticky" : "absolute";
 styleBase.top = isActive ? offset : position;
 ```
 
-Both `activeStickyIndex` (via `findCurrentStickyIndex` in
-`calculateItemsInView`) and every container's `top` are computed from JS scroll
-events. Browsers scroll on the **compositor thread**, so during a fast fling
-the visual scroll runs ahead of the JS thread:
+During a fling the compositor runs ahead of JS → late active switch (stale
+banner), mispositioned incoming header, and no CSS-native push-off (the active
+sticky's siblings are absolutely positioned, so there is no in-flow section to
+bound it — the handoff has to be emulated in JS, which is exactly what lags).
 
-- the active-index switch lands late → stale pinned header, jumpy transitions;
-- the incoming (still-absolute) header's `top` is stale → it creeps/overlaps;
-- CSS's native push-off can't happen because the active sticky's siblings are
-  absolutely positioned — there is no in-flow section to bound it, so the
-  handoff has to be emulated in JS, which is exactly what lags.
-
-`ScrollView`'s web sticky never needs JS during scroll (in-flow children + CSS
-sticky), which is why it stays stable — but of course it isn't virtualized.
+For comparison, `ScrollView`'s web sticky never needs JS during scroll
+(in-flow children + CSS sticky — see react-native-web `ScrollView/index.js`,
+`stickyHeader` style), which is why it stays stable; it just isn't virtualized.
 
 ## Production context
 
-We hit this on a course screen (full-viewport list, level banners as sticky
-headers). On native the library sticky is exact (UI-thread worklets) and we
-kept LegendList; on web we had to fork the screen to a non-virtualized flow
-layout with in-flow CSS-sticky banners to get lag-free pinning. We'd love to
-drop the fork.
+We hit both on a course screen (full-viewport list, level banners as sticky
+headers, `AnimatedLegendList` because we attach a reanimated
+`useAnimatedScrollHandler` to `onScroll`). On native the sticky is exact with
+either engine and we kept LegendList; on web we had to fork the screen to a
+non-virtualized flow layout with in-flow CSS-sticky banners to get stable
+pinning. We'd love to drop the fork.
 
 ## Possible directions (naive, feel free to discard)
 
-- While a sticky header is active, ALSO keep the *next* sticky container
-  `position: sticky` inside a shared in-flow wrapper so the push-off is CSS-owned
-  for the handoff window.
-- Or expose a documented escape hatch on web (e.g. a per-section flow mode for
-  sticky ranges) for lists small enough to skip virtualization of headers.
+- On web, have the reanimated entry fall back to the web `PositionViewSticky`
+  (CSS-sticky active header) instead of the per-frame translate — that would at
+  least make `AnimatedLegendList` no worse than the plain list.
+- For the handoff: while a header is active, also keep the *next* sticky
+  container `position: sticky` inside a shared in-flow wrapper so the push-off
+  window is CSS-owned.
 
 Happy to test any branch against the repro.

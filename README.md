@@ -1,12 +1,13 @@
-# @legendapp/list — web `stickyHeaderIndices` lag repro
+# @legendapp/list — web `stickyHeaderIndices` repro (two failure modes)
 
-Minimal side-by-side comparison of sticky section headers on **web**:
+Three-column comparison of sticky section headers on **web**, same data
+(12 sections × 15 fixed-height rows), same header/row components:
 
-- **LEFT** — `LegendList` (`@legendapp/list@3.3.0`) with `stickyHeaderIndices`
-- **RIGHT** — plain React Native `ScrollView` with `stickyHeaderIndices`
-  (react-native-web renders these as CSS `position: sticky` — compositor-driven)
-
-Same data (12 sections × 15 fixed-height rows), same header/row components.
+| Column | Component | Web behavior |
+|---|---|---|
+| LEFT | `AnimatedLegendList` (`@legendapp/list/reanimated`) | **Headers don't pin at all** — they ride along with the scroll like normal rows (with periodic snap-back corrections when JS re-renders). |
+| MIDDLE | `LegendList` (`@legendapp/list/react-native`) | Pins via CSS `position:sticky` on the *active* header, but the handoff is JS-driven: jumpy transitions, stale pinned banner, stacked banners under load. |
+| RIGHT | plain RN `ScrollView` + `stickyHeaderIndices` (react-native-web = in-flow CSS `position:sticky`) | Control: compositor-driven, pixel-stable at any scroll speed. |
 
 ## Run
 
@@ -15,48 +16,50 @@ npm install
 npx expo start --web
 ```
 
-Open the page in Chrome and **fling both columns fast** (trackpad or mouse wheel).
-To exaggerate, throttle the CPU 4×–6× in DevTools → Performance — this simulates
-a busy JS thread, which is exactly the condition of a real app mid-scroll.
+Open in Chrome and **fling each column** (trackpad / mouse wheel). The LEFT
+column's failure is visible at 1× CPU immediately; throttle the CPU 4×–6× in
+DevTools → Performance to exaggerate the MIDDLE column's handoff glitches
+(this simulates a busy JS thread — the normal condition of a real app).
 
-## What you'll see
+## Why (mechanism, from the shipped bundles)
 
-- **RIGHT (CSS sticky):** the section header stays pinned at all times; the next
-  header pushes it off smoothly. Immune to JS-thread load — the compositor owns it.
-- **LEFT (LegendList):** the pinned header creeps away from the top / shows stale
-  content and snaps back when scrolling settles; header-to-header transitions
-  jump instead of pushing off; under load two headers can stack.
+**`AnimatedLegendList`** (`reanimated.mjs`, `ReanimatedPositionViewSticky`):
+the pinned position is a per-frame `translateY` computed in a
+`useAnimatedStyle` from `useScrollViewOffset`:
 
-## Why (mechanism)
+```js
+const delta = Math.max(0, stickyScrollOffset.value - stickyStart);
+return { transform: [{ translateY: position + delta }] };
+```
 
-In the web build (`react-native.web.mjs`, `PositionViewSticky`), a sticky
-container is CSS `position: sticky` **only while it is the active sticky index**;
-all other containers (including the incoming next header) are `position:
-absolute`, and both the `activeStickyIndex` switch and each container's `top`
-are computed from **JS scroll events**. Browsers scroll on the compositor
-thread, so during a fast fling the visual scroll runs ahead of JS: the active
-switch happens late, the incoming header is mispositioned until JS catches up,
-and there is no native push-off (CSS sticky push-off requires the headers to be
-in-flow siblings/sections, which virtualization's absolute positioning removes).
+On native this worklet runs on the UI thread and pins exactly. On web
+reanimated has no UI thread — browsers scroll on the compositor thread, so the
+JS-applied transform is permanently behind the visual scroll: the header
+scrolls away with the content instead of pinning.
 
-`ScrollView`'s `stickyHeaderIndices` on react-native-web never needs JS during
-scroll: children are in normal flow and the sticky headers are plain CSS —
-see `react-native-web/dist/exports/ScrollView/index.js` (`stickyHeader` style).
+**Plain `LegendList`** (`react-native.web.mjs`, `PositionViewSticky`): a sticky
+container is CSS `position: sticky` only while it is the **active** sticky
+index; the active-index switch and the incoming header's absolute `top` are
+computed from JS scroll events. During a fast fling the compositor runs ahead
+of JS: late active switch (stale banner), mispositioned incoming header, and
+no native push-off (its absolutely-positioned siblings give CSS nothing to
+push against).
+
+**`ScrollView`** never needs JS during scroll: in-flow children + CSS sticky
+(`react-native-web/dist/exports/ScrollView/index.js`, `stickyHeader` style) —
+but of course it isn't virtualized.
 
 ## Artifacts (`artifacts/`)
 
-Captured with Playwright + CDP `Emulation.setCPUThrottlingRate(8)` while
-wheel-flinging each column (script: `scripts/capture-video.mjs`):
+Captured with Playwright + CDP `Emulation.setCPUThrottlingRate(4)`, flinging
+each column in turn (script: `scripts/capture-video.mjs`):
 
-- `sticky-lag-8x-throttle.{webm,mp4}` — full run. Left column flung first,
-  right column second.
-- `frame-banner-content-mismatch.png` — LEFT: banner pinned reads "Section 5"
-  while the visible rows are Section 6.
-- `frame-double-banner-no-pushoff.png` — LEFT: "Section 11" and "Section 12"
-  headers stacked (no push-off handoff). RIGHT is mid-fling and flawless.
-- `frame-stale-banner-and-starved-content.png` — LEFT: stale pinned banner over
-  starved (blank) content mid-fling.
-
-The throttle makes the failure reproducible in a headless recording; at 1× CPU
-the same drift is visible to the eye on fast flings (that is how we hit it in
-production — a full-viewport course list on desktop web).
+- `three-columns-4x-throttle.{webm,mp4}` — full run (left, then middle, then
+  right column flung).
+- `frame-animated-header-not-pinned.jpg` — LEFT mid-fling: `Item 2.11/2.12`
+  at the very top, **no header pinned anywhere**.
+- `frame-plain-double-banner.jpg` — MIDDLE mid-fling: `Section 2` and
+  `Section 3` banners visible simultaneously near the top (broken handoff);
+  LEFT settled with `Item 11.15` above the in-flow `Section 12` header.
+- `frame-control-stable-mid-fling.jpg` — RIGHT mid-fling: pinned banner +
+  in-flow next section, flawless.

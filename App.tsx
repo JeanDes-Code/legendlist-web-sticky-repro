@@ -1,22 +1,28 @@
 import { LegendList } from '@legendapp/list/react-native';
+import { AnimatedLegendList } from '@legendapp/list/reanimated';
 import React, { useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
-// Side-by-side comparison of sticky headers on WEB:
-//   LEFT  — @legendapp/list with stickyHeaderIndices (JS-driven pinning)
-//   RIGHT — plain RN ScrollView with stickyHeaderIndices (react-native-web
-//           renders these as CSS `position: sticky` — compositor-driven)
+// Side-by-side comparison of sticky section headers on WEB:
+//   LEFT   — AnimatedLegendList (@legendapp/list/reanimated) with
+//            stickyHeaderIndices. Its sticky pinning is a per-frame
+//            translateY computed from the scroll offset in a useAnimatedStyle
+//            (ReanimatedPositionViewSticky). On native that worklet runs on
+//            the UI thread (exact); on web there is no UI thread, so the
+//            transform is applied by the JS thread a frame (or more) late —
+//            the pinned header visibly rides down with the content and gets
+//            pulled back up, every frame. THIS is the main bug.
+//   MIDDLE — plain LegendList with stickyHeaderIndices. Web pins the ACTIVE
+//            header via CSS position:sticky, but the active-index switch and
+//            the incoming header's absolute position are JS-driven: stale
+//            pinned banner, jumpy handoff, stacked banners under load.
+//   RIGHT  — plain RN ScrollView with stickyHeaderIndices (react-native-web
+//            renders them as in-flow CSS position:sticky). Control column:
+//            compositor-driven, pixel-stable at any scroll speed.
 //
-// Repro: run `npx expo start --web`, then scroll BOTH columns with a fast
-// mouse-wheel / trackpad fling.
-//   RIGHT: the section header stays pinned to the top at all times, and the
-//          next header pushes it off smoothly (native CSS sticky handoff).
-//   LEFT:  the pinned header visibly creeps away from the top and snaps
-//          back when scrolling settles; header-to-header transitions jump
-//          instead of pushing off.
-//
-// The gap grows with scroll speed and with JS-thread load (e.g. throttle the
-// CPU 4x/6x in Chrome DevTools Performance tab to exaggerate it).
+// Repro: run `npx expo start --web`, scroll each column with a fast
+// mouse-wheel / trackpad fling. The LEFT column's jiggle is visible at 1x CPU;
+// throttle the CPU 4x/6x in DevTools Performance to exaggerate everything.
 
 type Row = { type: 'header' | 'item'; section: number; label: string };
 
@@ -58,26 +64,35 @@ export default function App() {
     [rows],
   );
 
+  const listProps = {
+    style: styles.list,
+    data: rows,
+    keyExtractor: (row: Row) => `${row.type}-${row.section}-${row.label}`,
+    getItemType: (row: Row) => row.type,
+    getFixedItemSize: (row: Row) => (row.type === 'header' ? HEADER_HEIGHT : ITEM_HEIGHT),
+    estimatedItemSize: ITEM_HEIGHT,
+    stickyHeaderIndices: stickyIndices,
+    renderItem: ({ item }: { item: Row }) => renderRow(item),
+  } as const;
+
   return (
     <View style={styles.root}>
       <View style={styles.column}>
-        <Text style={styles.columnTitle}>@legendapp/list — sticky lags on web</Text>
-        <LegendList
-          style={styles.list}
-          data={rows}
-          keyExtractor={(row) => `${row.type}-${row.section}-${row.label}`}
-          getItemType={(row) => row.type}
-          getFixedItemSize={(row) => (row.type === 'header' ? HEADER_HEIGHT : ITEM_HEIGHT)}
-          estimatedItemSize={ITEM_HEIGHT}
-          stickyHeaderIndices={stickyIndices}
-          renderItem={({ item }) => renderRow(item)}
-        />
+        <Text style={styles.columnTitle}>AnimatedLegendList — header rides the scroll</Text>
+        <AnimatedLegendList {...listProps} />
       </View>
 
       <View style={styles.separator} />
 
       <View style={styles.column}>
-        <Text style={styles.columnTitle}>RN ScrollView — CSS sticky, no lag</Text>
+        <Text style={styles.columnTitle}>LegendList — jumpy handoff, stale banner</Text>
+        <LegendList {...listProps} />
+      </View>
+
+      <View style={styles.separator} />
+
+      <View style={styles.column}>
+        <Text style={styles.columnTitle}>RN ScrollView — CSS sticky, stable</Text>
         <ScrollView style={styles.list} stickyHeaderIndices={stickyIndices}>
           {rows.map((row) => (
             <React.Fragment key={`${row.type}-${row.section}-${row.label}`}>
