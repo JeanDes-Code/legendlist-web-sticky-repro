@@ -5,7 +5,7 @@ Three-column comparison of sticky section headers on **web**, same data
 
 | Column | Component | Web behavior |
 |---|---|---|
-| LEFT | `AnimatedLegendList` (`@legendapp/list/reanimated`) | **Headers don't pin at all** — they ride along with the scroll like normal rows (with periodic snap-back corrections when JS re-renders). |
+| LEFT | `AnimatedLegendList` (`@legendapp/list/reanimated`) | Pins correctly **at rest**, but **during scroll the pinned header rides along with the content** (up-and-down motion, tracking the scroll) and only snaps back into place when the JS thread catches up / scrolling settles. |
 | MIDDLE | `LegendList` (`@legendapp/list/react-native`) | Pins via CSS `position:sticky` on the *active* header, but the handoff is JS-driven: jumpy transitions, stale pinned banner, stacked banners under load. |
 | RIGHT | plain RN `ScrollView` + `stickyHeaderIndices` (react-native-web = in-flow CSS `position:sticky`) | Control: compositor-driven, pixel-stable at any scroll speed. |
 
@@ -34,8 +34,11 @@ return { transform: [{ translateY: position + delta }] };
 
 On native this worklet runs on the UI thread and pins exactly. On web
 reanimated has no UI thread — browsers scroll on the compositor thread, so the
-JS-applied transform is permanently behind the visual scroll: the header
-scrolls away with the content instead of pinning.
+JS-applied transform is always one-or-more frames behind the visual scroll:
+during scroll the header visually rides with the content by however much the
+JS thread is behind, then snaps back once JS catches up. The gap scales with
+scroll speed and JS load (under heavy load the whole virtualized window can
+starve and the column blanks).
 
 **Plain `LegendList`** (`react-native.web.mjs`, `PositionViewSticky`): a sticky
 container is CSS `position: sticky` only while it is the **active** sticky
@@ -51,15 +54,17 @@ but of course it isn't virtualized.
 
 ## Artifacts (`artifacts/`)
 
-Captured with Playwright + CDP `Emulation.setCPUThrottlingRate(4)`, flinging
+Captured with Playwright + CDP `Emulation.setCPUThrottlingRate(2)`, flinging
 each column in turn (script: `scripts/capture-video.mjs`):
 
-- `three-columns-4x-throttle.{webm,mp4}` — full run (left, then middle, then
+- `three-columns-2x-throttle.{webm,mp4}` — full run (left, then middle, then
   right column flung).
-- `frame-animated-header-not-pinned.jpg` — LEFT mid-fling: `Item 2.11/2.12`
-  at the very top, **no header pinned anywhere**.
-- `frame-plain-double-banner.jpg` — MIDDLE mid-fling: `Section 2` and
-  `Section 3` banners visible simultaneously near the top (broken handoff);
-  LEFT settled with `Item 11.15` above the in-flow `Section 12` header.
+- `frame-animated-header-rides-midscroll.jpg` — LEFT mid-fling: `Item
+  5.13–5.15` at the very top and `Section 6`'s header **riding in-flow
+  mid-column instead of being pinned**.
+- `frame-animated-repinned-at-rest-plus-plain-double-banner.jpg` — LEFT
+  settled: `Section 6` correctly re-pinned (the failure is scroll-time only);
+  MIDDLE mid-fling: `Section 1` and `Section 2` banners stacked (broken
+  handoff).
 - `frame-control-stable-mid-fling.jpg` — RIGHT mid-fling: pinned banner +
   in-flow next section, flawless.

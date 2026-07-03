@@ -1,6 +1,6 @@
 # Draft GitHub issue for legendapp/list
 
-> Title: **Web: sticky headers broken — `AnimatedLegendList` headers don't pin at all; plain `LegendList` handoff drifts/stacks under fast scroll**
+> Title: **Web: sticky headers lag — `AnimatedLegendList` header rides the scroll instead of staying pinned; plain `LegendList` handoff drifts/stacks under fast scroll**
 
 ## Environment
 
@@ -13,10 +13,12 @@
 
 Two related problems with `stickyHeaderIndices` on **web**:
 
-1. **`AnimatedLegendList` (`@legendapp/list/reanimated`): headers don't pin at
-   all.** They scroll away with the content like normal rows (in a real app
-   with re-renders they periodically snap back, producing an up-and-down
-   "riding" motion during scroll). Visible at 1× CPU on any fling.
+1. **`AnimatedLegendList` (`@legendapp/list/reanimated`): the pinned header
+   rides the scroll.** It pins correctly at rest, but during scrolling it
+   visibly moves up and down with the content — by however much the JS thread
+   is behind the compositor scroll — then snaps back into place when scrolling
+   settles. Visible at 1× CPU on any fast fling; worse under load (under heavy
+   throttle the whole virtualized window starves and the column blanks).
 2. **Plain `LegendList`: pinning works but the handoff is unstable.** During a
    fast fling the pinned banner can go stale (banner says "Section 5" over
    Section 6 rows), transitions jump instead of pushing off, and two banners
@@ -31,8 +33,8 @@ same conditions.
 Minimal three-column repro (AnimatedLegendList / LegendList / ScrollView, same
 data and rows): **<link to repro repo>** — `npm install && npx expo start
 --web`, fling each column. Video + frame captures in `artifacts/` (recorded at
-4× CPU throttle to make the plain-list handoff deterministic on camera; the
-AnimatedLegendList failure needs no throttle).
+2× CPU throttle to make both failures deterministic on camera; the
+AnimatedLegendList riding is visible at 1× on a fast fling).
 
 ## Mechanism (from reading the shipped bundles)
 
@@ -48,8 +50,9 @@ return { transform: [{ translateY: resolvedPosition }] };
 
 On native the worklet runs on the UI thread → exact. On web there is no UI
 thread and browsers scroll on the **compositor** thread, so the JS-applied
-transform is permanently behind the visual scroll — the header effectively
-never pins.
+transform is always one-or-more frames behind the visual scroll — during
+scrolling the header visually travels with the content by exactly the JS lag,
+snapping back when JS catches up.
 
 **RN-Animated engine** (plain list, web build `PositionViewSticky`): the active
 sticky container becomes CSS `position: sticky`, everything else stays
