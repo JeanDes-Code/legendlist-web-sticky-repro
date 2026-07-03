@@ -6,7 +6,7 @@ Three-column comparison of sticky section headers on **web**, same data
 | Column | Component | Web behavior |
 |---|---|---|
 | LEFT | `AnimatedLegendList` (`@legendapp/list/reanimated`) | Pins correctly **at rest**, but **during scroll the pinned header rides along with the content** (up-and-down motion, tracking the scroll) and only snaps back into place when the JS thread catches up / scrolling settles. |
-| MIDDLE | `LegendList` (`@legendapp/list/react-native`) | Pins via CSS `position:sticky` on the *active* header, but the handoff is JS-driven: jumpy transitions, stale pinned banner, stacked banners under load. |
+| MIDDLE | `LegendList` (`@legendapp/list/react-native`) | Pins via CSS `position:sticky` on the *active* header — solid at normal scroll speeds, but the header **swap is instant, with no animated push-off transition** (compare the control column); and since the swap is JS-driven, heavy JS load can leave a stale pinned banner or briefly stack two banners. |
 | RIGHT | plain RN `ScrollView` + `stickyHeaderIndices` (react-native-web = in-flow CSS `position:sticky`) | Control: compositor-driven, pixel-stable at any scroll speed. |
 
 ## Run
@@ -42,11 +42,12 @@ starve and the column blanks).
 
 **Plain `LegendList`** (`react-native.web.mjs`, `PositionViewSticky`): a sticky
 container is CSS `position: sticky` only while it is the **active** sticky
-index; the active-index switch and the incoming header's absolute `top` are
-computed from JS scroll events. During a fast fling the compositor runs ahead
-of JS: late active switch (stale banner), mispositioned incoming header, and
-no native push-off (its absolutely-positioned siblings give CSS nothing to
-push against).
+index; all other containers are `position: absolute`. Pinning itself is
+therefore compositor-stable, but there is no push-off transition: CSS has
+nothing to push the active header against (its siblings are absolute), so the
+outgoing→incoming swap is an instant JS-driven switch. At normal speeds that
+reads as a hard cut instead of the classic push animation; under JS-thread
+load the switch lands late — stale pinned banner, briefly stacked banners.
 
 **`ScrollView`** never needs JS during scroll: in-flow children + CSS sticky
 (`react-native-web/dist/exports/ScrollView/index.js`, `stickyHeader` style) —

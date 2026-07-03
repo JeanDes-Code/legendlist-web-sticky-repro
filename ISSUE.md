@@ -1,6 +1,6 @@
 # Draft GitHub issue for legendapp/list
 
-> Title: **Web: sticky headers lag — `AnimatedLegendList` header rides the scroll instead of staying pinned; plain `LegendList` handoff drifts/stacks under fast scroll**
+> Title: **Web: `AnimatedLegendList` sticky header rides the scroll instead of staying pinned; plain `LegendList` pins fine but has no push-off transition**
 
 ## Environment
 
@@ -19,10 +19,12 @@ Two related problems with `stickyHeaderIndices` on **web**:
    is behind the compositor scroll — then snaps back into place when scrolling
    settles. Visible at 1× CPU on any fast fling; worse under load (under heavy
    throttle the whole virtualized window starves and the column blanks).
-2. **Plain `LegendList`: pinning works but the handoff is unstable.** During a
-   fast fling the pinned banner can go stale (banner says "Section 5" over
-   Section 6 rows), transitions jump instead of pushing off, and two banners
-   can stack. Worsens with JS-thread load.
+2. **Plain `LegendList`: pinning is solid, but the handoff has no push-off
+   transition.** The outgoing→incoming header swap is an instant cut instead
+   of the classic push animation (compare `ScrollView`'s CSS sticky). And
+   because the swap is JS-driven, under JS-thread load it lands late: stale
+   pinned banner (banner says "Section 5" over Section 6 rows) or two banners
+   briefly stacked.
 
 The same content in a plain RN `ScrollView` with `stickyHeaderIndices`
 (react-native-web in-flow CSS `position: sticky`) is pixel-stable under the
@@ -66,10 +68,11 @@ styleBase.position = isActive ? "sticky" : "absolute";
 styleBase.top = isActive ? offset : position;
 ```
 
-During a fling the compositor runs ahead of JS → late active switch (stale
-banner), mispositioned incoming header, and no CSS-native push-off (the active
-sticky's siblings are absolutely positioned, so there is no in-flow section to
-bound it — the handoff has to be emulated in JS, which is exactly what lags).
+Pinning itself is compositor-stable, but there is no CSS-native push-off: the
+active sticky's siblings are absolutely positioned, so there is no in-flow
+section to bound it — the outgoing→incoming swap is an instant JS switch
+rather than a push transition. Under JS-thread load the swap also lands late
+(stale banner, briefly stacked banners).
 
 For comparison, `ScrollView`'s web sticky never needs JS during scroll
 (in-flow children + CSS sticky — see react-native-web `ScrollView/index.js`,
