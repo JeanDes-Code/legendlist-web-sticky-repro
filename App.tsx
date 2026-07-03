@@ -13,11 +13,10 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 //            the pinned header visibly rides down with the content and gets
 //            pulled back up, every frame. THIS is the main bug.
 //   MIDDLE — plain LegendList with stickyHeaderIndices. Web pins the ACTIVE
-//            header via CSS position:sticky — solid at normal scroll speeds,
-//            but the header SWAP is instant (no animated push-off transition
-//            like the control column's), and because the active-index switch
-//            is JS-driven, heavy JS load can produce a stale pinned banner or
-//            briefly stacked banners.
+//            header via CSS position:sticky and works well — the only issue is
+//            that fast scrolls occasionally show micro visual artifacts on the
+//            section titles (the active-header swap is JS-driven, so for a
+//            frame or two a banner can be stale or doubled).
 //   RIGHT  — plain RN ScrollView with stickyHeaderIndices (react-native-web
 //            renders them as in-flow CSS position:sticky). Control column:
 //            compositor-driven, pixel-stable at any scroll speed.
@@ -87,7 +86,7 @@ export default function App() {
       <View style={styles.separator} />
 
       <View style={styles.column}>
-        <Text style={styles.columnTitle}>LegendList — pins fine, but no push-off transition</Text>
+        <Text style={styles.columnTitle}>LegendList — works, micro-artifacts on fast scroll</Text>
         <LegendList {...listProps} />
       </View>
 

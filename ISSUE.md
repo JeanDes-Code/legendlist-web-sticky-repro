@@ -1,6 +1,6 @@
 # Draft GitHub issue for legendapp/list
 
-> Title: **Web: `AnimatedLegendList` sticky header rides the scroll instead of staying pinned; plain `LegendList` pins fine but has no push-off transition**
+> Title: **Web: `AnimatedLegendList` sticky header rides the scroll instead of staying pinned (plain `LegendList` works, with micro-artifacts on fast scrolls)**
 
 ## Environment
 
@@ -19,12 +19,10 @@ Two related problems with `stickyHeaderIndices` on **web**:
    is behind the compositor scroll — then snaps back into place when scrolling
    settles. Visible at 1× CPU on any fast fling; worse under load (under heavy
    throttle the whole virtualized window starves and the column blanks).
-2. **Plain `LegendList`: pinning is solid, but the handoff has no push-off
-   transition.** The outgoing→incoming header swap is an instant cut instead
-   of the classic push animation (compare `ScrollView`'s CSS sticky). And
-   because the swap is JS-driven, under JS-thread load it lands late: stale
-   pinned banner (banner says "Section 5" over Section 6 rows) or two banners
-   briefly stacked.
+2. **Plain `LegendList` works well** — the only remaining issue is that fast
+   scrolls occasionally show micro visual artifacts on the section titles: the
+   active-header swap is JS-driven, so for a frame or two the pinned banner
+   can be stale (banner says "Section 5" over Section 6 rows) or doubled.
 
 The same content in a plain RN `ScrollView` with `stickyHeaderIndices`
 (react-native-web in-flow CSS `position: sticky`) is pixel-stable under the
@@ -68,11 +66,10 @@ styleBase.position = isActive ? "sticky" : "absolute";
 styleBase.top = isActive ? offset : position;
 ```
 
-Pinning itself is compositor-stable, but there is no CSS-native push-off: the
-active sticky's siblings are absolutely positioned, so there is no in-flow
-section to bound it — the outgoing→incoming swap is an instant JS switch
-rather than a push transition. Under JS-thread load the swap also lands late
-(stale banner, briefly stacked banners).
+Pinning itself is compositor-stable and works well. The remaining rough edge
+is the outgoing→incoming swap: it is a JS-driven switch (scroll events →
+`activeStickyIndex`), so on fast scrolls it can land a frame or two late —
+a briefly stale or doubled section title.
 
 For comparison, `ScrollView`'s web sticky never needs JS during scroll
 (in-flow children + CSS sticky — see react-native-web `ScrollView/index.js`,
@@ -80,20 +77,21 @@ For comparison, `ScrollView`'s web sticky never needs JS during scroll
 
 ## Production context
 
-We hit both on a course screen (full-viewport list, level banners as sticky
-headers, `AnimatedLegendList` because we attach a reanimated
-`useAnimatedScrollHandler` to `onScroll`). On native the sticky is exact with
-either engine and we kept LegendList; on web we had to fork the screen to a
-non-virtualized flow layout with in-flow CSS-sticky banners to get stable
-pinning. We'd love to drop the fork.
+We hit this on a course screen (full-viewport list, level banners as sticky
+headers). We use `AnimatedLegendList` for a simple reason: a reanimated
+`useAnimatedScrollHandler` on `onScroll` drives a scroll-linked fade on the UI
+thread, and only the reanimated entry accepts that handler. On native the
+sticky is exact and we kept LegendList; on web we had to fork the screen to a
+non-virtualized flow layout with in-flow CSS-sticky banners. We'd love to drop
+the fork.
 
 ## Possible directions (naive, feel free to discard)
 
 - On web, have the reanimated entry fall back to the web `PositionViewSticky`
-  (CSS-sticky active header) instead of the per-frame translate — that would at
-  least make `AnimatedLegendList` no worse than the plain list.
-- For the handoff: while a header is active, also keep the *next* sticky
-  container `position: sticky` inside a shared in-flow wrapper so the push-off
-  window is CSS-owned.
+  (CSS-sticky active header) instead of the per-frame translate — that would
+  make `AnimatedLegendList` behave like the plain list, which is already good.
+- For the micro-artifacts: keep the next/previous sticky containers
+  `position: sticky` too (not just the active one), so the swap doesn't depend
+  on a JS round-trip mid-scroll.
 
 Happy to test any branch against the repro.

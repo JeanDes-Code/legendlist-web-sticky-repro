@@ -6,7 +6,7 @@ Three-column comparison of sticky section headers on **web**, same data
 | Column | Component | Web behavior |
 |---|---|---|
 | LEFT | `AnimatedLegendList` (`@legendapp/list/reanimated`) | Pins correctly **at rest**, but **during scroll the pinned header rides along with the content** (up-and-down motion, tracking the scroll) and only snaps back into place when the JS thread catches up / scrolling settles. |
-| MIDDLE | `LegendList` (`@legendapp/list/react-native`) | Pins via CSS `position:sticky` on the *active* header — solid at normal scroll speeds, but the header **swap is instant, with no animated push-off transition** (compare the control column); and since the swap is JS-driven, heavy JS load can leave a stale pinned banner or briefly stack two banners. |
+| MIDDLE | `LegendList` (`@legendapp/list/react-native`) | Pins via CSS `position:sticky` on the *active* header and **works well** — the only issue is that **fast scrolls occasionally show micro visual artifacts on the section titles** (the active-header swap is JS-driven, so for a frame or two a banner can be stale or doubled). |
 | RIGHT | plain RN `ScrollView` + `stickyHeaderIndices` (react-native-web = in-flow CSS `position:sticky`) | Control: compositor-driven, pixel-stable at any scroll speed. |
 
 ## Run
@@ -43,11 +43,10 @@ starve and the column blanks).
 **Plain `LegendList`** (`react-native.web.mjs`, `PositionViewSticky`): a sticky
 container is CSS `position: sticky` only while it is the **active** sticky
 index; all other containers are `position: absolute`. Pinning itself is
-therefore compositor-stable, but there is no push-off transition: CSS has
-nothing to push the active header against (its siblings are absolute), so the
-outgoing→incoming swap is an instant JS-driven switch. At normal speeds that
-reads as a hard cut instead of the classic push animation; under JS-thread
-load the switch lands late — stale pinned banner, briefly stacked banners.
+therefore compositor-stable and the list behaves well overall. The remaining
+rough edge: the outgoing→incoming header swap is JS-driven (scroll events →
+`activeStickyIndex`), so on fast scrolls the switch can land a frame or two
+late — a briefly stale or doubled section title. Micro artifacts, but visible.
 
 **`ScrollView`** never needs JS during scroll: in-flow children + CSS sticky
 (`react-native-web/dist/exports/ScrollView/index.js`, `stickyHeader` style) —
