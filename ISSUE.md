@@ -30,6 +30,9 @@ same conditions.
 
 ## Repro
 
+**Live demo: https://jeandes-code.github.io/legendlist-web-sticky-repro/** —
+fling each column with a fast trackpad/mouse-wheel scroll.
+
 Minimal three-column repro (AnimatedLegendList / LegendList / ScrollView, same
 data and rows): **https://github.com/JeanDes-Code/legendlist-web-sticky-repro**
 — `npm install && npx expo start --web`, fling each column. Video + frame captures in `artifacts/` (recorded at

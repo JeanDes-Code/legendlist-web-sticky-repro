@@ -1,5 +1,9 @@
 # @legendapp/list — web `stickyHeaderIndices` repro (two failure modes)
 
+**Live demo (no setup needed):**
+https://jeandes-code.github.io/legendlist-web-sticky-repro/ — fling each
+column with a fast trackpad/mouse-wheel scroll.
+
 Three-column comparison of sticky section headers on **web**, same data
 (12 sections × 15 fixed-height rows), same header/row components:
 
